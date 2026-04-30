@@ -32,10 +32,9 @@ async def customer_outstanding(customer_id: str, user=Depends(get_current_user))
 
     invoices = await db.invoices.find({"customer_id": customer_id}, {"_id": 0}).sort("created_at", -1).to_list(1000)
 
-    # All customer-side credit notes (returns) for this customer (used for both
-    # per-invoice subtraction and the printable annexure).
+    # Customer-side returns only (supplier-bound credit notes don't affect invoice balance)
     all_returns = await db.returns.find(
-        {"customer_id": customer_id},
+        {"customer_id": customer_id, "destination": {"$ne": "supplier"}},
         {"_id": 0}
     ).sort("created_at", -1).to_list(1000)
     returns_map = {}
@@ -120,6 +119,7 @@ async def global_outstanding(user=Depends(get_current_user)):
     pay_map = {t["_id"]: t["total"] for t in pay_totals}
 
     ret_totals = await db.returns.aggregate([
+        {"$match": {"destination": {"$ne": "supplier"}}},
         {"$unwind": "$items"},
         {"$group": {"_id": "$customer_id", "total": {"$sum": "$items.amount"}}}
     ]).to_list(1000)
@@ -315,8 +315,9 @@ async def financial_summary(
                 total_cost += (product.get("cost_price", 0) * item.get("quantity", 0))
 
     ret_match = dict(df) if df else {}
+    ret_match["destination"] = {"$ne": "supplier"}
     ret_agg = await db.returns.aggregate([
-        {"$match": ret_match} if ret_match else {"$match": {}},
+        {"$match": ret_match},
         {"$unwind": "$items"},
         {"$group": {"_id": None,
                     "revenue": {"$sum": "$items.amount"},

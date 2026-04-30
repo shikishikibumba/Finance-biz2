@@ -61,7 +61,7 @@ async def recalc_invoice_status(invoice_id: str):
     total_paid = pay_total[0]["total"] if pay_total else 0
     # Include returns (credit notes) and manual settlement in the status
     ret_total = await db.returns.aggregate([
-        {"$match": {"invoice_id": invoice_id}},
+        {"$match": {"invoice_id": invoice_id, "destination": {"$ne": "supplier"}}},
         {"$unwind": "$items"},
         {"$group": {"_id": None, "total": {"$sum": "$items.amount"}}}
     ]).to_list(1)

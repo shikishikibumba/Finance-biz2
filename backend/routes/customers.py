@@ -49,6 +49,7 @@ async def list_customers(search: Optional[str] = None, user=Depends(get_current_
     pay_map = {t["_id"]: t["total"] for t in pay_totals}
 
     ret_totals = await db.returns.aggregate([
+        {"$match": {"destination": {"$ne": "supplier"}}},
         {"$unwind": "$items"},
         {"$group": {"_id": "$customer_id", "total": {"$sum": "$items.amount"}}}
     ]).to_list(1000)
@@ -82,7 +83,7 @@ async def get_customer(customer_id: str, user=Depends(get_current_user)):
     total_paid = pay_result[0]["total"] if pay_result else 0
 
     ret_pipeline = [
-        {"$match": {"customer_id": customer_id}},
+        {"$match": {"customer_id": customer_id, "destination": {"$ne": "supplier"}}},
         {"$unwind": "$items"},
         {"$group": {"_id": None, "total": {"$sum": "$items.amount"}}}
     ]
