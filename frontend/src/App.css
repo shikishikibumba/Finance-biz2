@@ -1,34 +1,40 @@
-.App-logo {
-    height: 40vmin;
-    pointer-events: none;
+/* Sidebar (dark) — keep background fixed #0F172A but ensure text contrast in both themes */
+.sidebar-link {
+  @apply flex items-center gap-3 px-3 py-2.5 rounded-sm text-sm font-medium transition-all duration-200;
+  color: rgba(255, 255, 255, 0.78);
+}
+.sidebar-link:hover {
+  background-color: rgba(255, 255, 255, 0.10);
+  color: #ffffff;
+}
+.sidebar-link.active {
+  background-color: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+}
+.dark .sidebar-link { color: rgba(226, 232, 240, 0.82); }
+.dark .sidebar-link:hover, .dark .sidebar-link.active { color: #ffffff; }
+
+.metric-card {
+  @apply border shadow-sm rounded-md p-5 transition-all duration-200;
+  background-color: hsl(var(--card));
+  color: hsl(var(--card-foreground));
+  border-color: hsl(var(--border));
+}
+.metric-card:hover {
+  @apply shadow-md;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-    .App-logo {
-        animation: App-logo-spin infinite 20s linear;
-    }
+.data-table th {
+  @apply border-y text-xs font-bold uppercase tracking-wider py-3 px-4 text-left;
+  background-color: hsl(var(--muted));
+  border-color: hsl(var(--border));
+  color: hsl(var(--muted-foreground));
 }
-
-.App-header {
-    background-color: #0f0f10;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    font-size: calc(10px + 2vmin);
-    color: white;
+.data-table td {
+  @apply border-b py-3 px-4 align-middle text-sm;
+  border-color: hsl(var(--border));
+  color: hsl(var(--foreground));
 }
-
-.App-link {
-    color: #61dafb;
-}
-
-@keyframes App-logo-spin {
-    from {
-        transform: rotate(0deg);
-    }
-    to {
-        transform: rotate(360deg);
-    }
+.data-table tr:hover td {
+  background-color: hsl(var(--muted) / 0.5);
 }
