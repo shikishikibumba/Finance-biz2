@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 import uuid
 from database import db
 from auth import get_current_user
+from routes._helpers import credit_total as _credit_total
+
 
 router = APIRouter(prefix="/api/suppliers", tags=["suppliers"])
 
@@ -23,10 +25,6 @@ class SupplierUpdate(BaseModel):
     address: Optional[str] = None
     is_primary: Optional[bool] = None
     opening_balance: Optional[float] = None
-
-
-def _credit_total(purchase: dict) -> float:
-    return round(sum(float(a.get("amount", 0)) for a in purchase.get("supplier_return_adjustments", []) or []), 2)
 
 
 @router.get("")

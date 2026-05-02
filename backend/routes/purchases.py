@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import uuid
 from database import db, get_next_sequence
 from auth import get_current_user
+from routes._helpers import credit_total as _credit_total, enrich_purchase as _enrich_purchase
 
 router = APIRouter(prefix="/api/purchases", tags=["purchases"])
 
@@ -74,20 +75,6 @@ async def list_purchases(search: Optional[str] = None, supplier_id: Optional[str
 
     purchases = await db.purchases.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
     return [_enrich_purchase(p) for p in purchases]
-
-
-def _enrich_purchase(p: dict) -> dict:
-    """Compute credit-note totals & net payable for a purchase doc.
-    Original total_amount is NEVER modified.
-    """
-    adjustments = p.get("supplier_return_adjustments", []) or []
-    credit_total = round(sum(float(a.get("amount", 0)) for a in adjustments), 2)
-    original = float(p.get("total_amount", 0) or 0)
-    p["original_amount"] = round(original, 2)
-    p["credit_notes_total"] = credit_total
-    p["net_payable"] = round(original - credit_total, 2)
-    p["credit_notes"] = adjustments
-    return p
 
 
 @router.get("/{purchase_id}")

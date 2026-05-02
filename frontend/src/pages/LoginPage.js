@@ -113,7 +113,7 @@ export default function LoginPage() {
             <ShoppingCart className="text-white" size={24} />
           </div>
           <CardTitle className="text-2xl tracking-tight" style={{ fontFamily: 'Outfit, sans-serif' }}>
-            Commerical Trading
+            Commercial Trading
           </CardTitle>
           <p className="text-sm text-muted-foreground mt-1">
             {mode === "login" && "Sign in to your account"}

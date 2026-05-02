@@ -238,7 +238,7 @@ export default function InvoicesPage() {
 
               {/* Invoice Header */}
               <div className="text-center mb-4">
-                <h2 className="text-xl font-semibold tracking-tight" style={{ fontFamily: 'Outfit, sans-serif' }}>Commerical Trading</h2>
+                <h2 className="text-xl font-semibold tracking-tight" style={{ fontFamily: 'Outfit, sans-serif' }}>Commercial Trading</h2>
                 <h3 className="text-lg font-semibold tracking-tight mt-0.5" style={{ fontFamily: 'Outfit, sans-serif' }}>INVOICE</h3>
                 <p className="text-sm text-muted-foreground mt-0.5">{selectedInvoice.invoice_number}</p>
               </div>

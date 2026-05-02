@@ -3,6 +3,7 @@ from typing import Optional
 from datetime import datetime, timezone, timedelta
 from database import db
 from auth import get_current_user
+from routes._helpers import credit_total as _credit_total
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
@@ -17,10 +18,6 @@ def _date_filter(date_from: Optional[str], date_to: Optional[str]):
     return {"created_at": cond} if cond else {}
 
 
-def _credit_total(purchase: dict) -> float:
-    return round(sum(float(a.get("amount", 0)) for a in purchase.get("supplier_return_adjustments", []) or []), 2)
-
-
 # ────────────────────────────────────────────────────────────────────────────
 # Customer Outstanding (with credit-note annexure data)
 # ────────────────────────────────────────────────────────────────────────────
@@ -32,11 +29,30 @@ async def customer_outstanding(customer_id: str, user=Depends(get_current_user))
 
     invoices = await db.invoices.find({"customer_id": customer_id}, {"_id": 0}).sort("created_at", -1).to_list(1000)
 
-    # Customer-side returns only (supplier-bound credit notes don't affect invoice balance)
-    all_returns = await db.returns.find(
-        {"customer_id": customer_id, "destination": {"$ne": "supplier"}},
+    # Customer-side returns. Two matching strategies to be safe with legacy data:
+    #   1. returns tagged with this customer_id
+    #   2. returns whose invoice_id belongs to this customer (fallback for older
+    #      records that may be missing customer_id or destination)
+    invoice_ids = [inv["id"] for inv in invoices]
+    all_returns_q = await db.returns.find(
+        {
+            "$or": [
+                {"customer_id": customer_id},
+                {"invoice_id": {"$in": invoice_ids}}
+            ],
+            "destination": {"$ne": "supplier"}
+        },
         {"_id": 0}
     ).sort("created_at", -1).to_list(1000)
+    # De-duplicate by id
+    seen = set()
+    all_returns = []
+    for r in all_returns_q:
+        rid = r.get("id")
+        if rid in seen:
+            continue
+        seen.add(rid)
+        all_returns.append(r)
     returns_map = {}
     for r in all_returns:
         amt = float(r.get("total_amount", 0) or 0)
@@ -55,7 +71,9 @@ async def customer_outstanding(customer_id: str, user=Depends(get_current_user))
         returned = returns_map.get(inv["id"], 0)
         balance = inv["total_amount"] - paid - returned
 
-        if balance > 0.01:
+        # Include invoices with outstanding balance OR with credit-note activity
+        # so users can see how returns impacted each invoice.
+        if balance > 0.01 or returned > 0.01:
             report_items.append({
                 "invoice_number": inv["invoice_number"],
                 "invoice_id": inv["id"],
@@ -66,7 +84,8 @@ async def customer_outstanding(customer_id: str, user=Depends(get_current_user))
                 "balance": round(balance, 2),
                 "status": inv.get("status", "unpaid")
             })
-            total_outstanding += balance
+            if balance > 0.01:
+                total_outstanding += balance
 
     opening = float(customer.get("opening_balance", 0))
     total_outstanding += opening
@@ -382,10 +401,9 @@ async def supplier_outstanding(supplier_id: str, user=Depends(get_current_user))
 
     purchases = await db.purchases.find({"supplier_id": supplier_id}, {"_id": 0}).sort("created_at", -1).to_list(1000)
     items = []
-    total_payable = 0
     total_purchases = 0
     total_credits = 0
-    total_paid_alloc = 0
+    total_allocated = 0
 
     for p in purchases:
         alloc = await db.payments.aggregate([
@@ -401,9 +419,7 @@ async def supplier_outstanding(supplier_id: str, user=Depends(get_current_user))
         balance = round(net - paid, 2)
         total_purchases += original
         total_credits += credits
-        total_paid_alloc += paid
-        if balance > 0.01:
-            total_payable += balance
+        total_allocated += paid
         items.append({
             "purchase_id": p["id"],
             "purchase_number": p.get("purchase_number", ""),
@@ -416,6 +432,14 @@ async def supplier_outstanding(supplier_id: str, user=Depends(get_current_user))
             "balance": balance,
             "linked_invoice_number": p.get("linked_invoice_number", ""),
         })
+
+    # Entity-level total supplier payments (source of truth — matches /supplier-payable)
+    all_paid_agg = await db.payments.aggregate([
+        {"$match": {"entity_id": supplier_id, "payment_type": "supplier"}},
+        {"$group": {"_id": None, "total": {"$sum": "$amount"}}}
+    ]).to_list(1)
+    total_supplier_paid = all_paid_agg[0]["total"] if all_paid_agg else 0
+    unallocated_paid = round(total_supplier_paid - total_allocated, 2)
 
     # All supplier-side credit notes (including those not yet linked to a purchase)
     credit_notes = await db.returns.find(
@@ -432,6 +456,9 @@ async def supplier_outstanding(supplier_id: str, user=Depends(get_current_user))
     } for r in credit_notes]
 
     opening = float(supplier.get("opening_balance", 0) or 0)
+    # Canonical payable formula — matches supplier-payable exactly.
+    total_payable = round(opening + total_purchases - total_credits - total_supplier_paid, 2)
+
     return {
         "supplier_id": supplier_id,
         "supplier_name": supplier.get("name", ""),
@@ -441,8 +468,10 @@ async def supplier_outstanding(supplier_id: str, user=Depends(get_current_user))
         "purchases": items,
         "purchase_total": round(total_purchases, 2),
         "credit_notes_total": round(total_credits, 2),
-        "paid_total": round(total_paid_alloc, 2),
-        "total_payable": round(total_payable + opening, 2),
+        "paid_total": round(total_supplier_paid, 2),
+        "allocated_total": round(total_allocated, 2),
+        "unallocated_paid": unallocated_paid,
+        "total_payable": total_payable,
         "credit_notes": cn_annexure,
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }

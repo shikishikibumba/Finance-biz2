@@ -149,6 +149,17 @@
     page-break-inside: avoid;
     page-break-after: auto;
   }
+  /* Hide platform watermarks/badges injected at runtime (e.g. "Made with Emergent") */
+  a[href*="emergent"],
+  [data-testid*="emergent-badge"],
+  [class*="emergent-badge"],
+  [id*="emergent-badge"],
+  .made-with-emergent,
+  #emergent-watermark,
+  iframe[src*="emergent"] {
+    display: none !important;
+    visibility: hidden !important;
+  }
 }
 
 /* B5 Landscape page size for invoice print */

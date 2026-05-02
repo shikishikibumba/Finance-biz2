@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BookOpen, Calendar, ArrowLeft, Printer } from "lucide-react";
+import { printHtml, escapeHtml, fmtRs } from "@/lib/printer";
 
 const fmt = (n) =>
   new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n || 0);
@@ -41,7 +42,60 @@ export default function LedgerPage() {
 
   useEffect(() => { fetchLedger(); }, [fetchLedger]);
 
-  const handlePrint = () => window.print();
+  const handlePrint = () => {
+    if (!ledger) return;
+    const rows = [
+      `<tr>
+        <td>—</td>
+        <td><em>Opening</em></td>
+        <td></td>
+        <td><em>Balance brought forward</em></td>
+        <td class="right">—</td>
+        <td class="right">—</td>
+        <td class="right"><strong>${fmtRs(ledger.opening_balance)}</strong></td>
+      </tr>`,
+      ...(ledger.entries || []).map(e => `
+        <tr>
+          <td>${escapeHtml(e.date || "")}</td>
+          <td style="text-transform:uppercase;font-size:10px;font-weight:600;">${escapeHtml((e.type || "").replace(/_/g, " "))}</td>
+          <td>${escapeHtml(e.ref || "—")}</td>
+          <td>${escapeHtml(e.description || "")}</td>
+          <td class="right">${e.debit ? fmtRs(e.debit) : "—"}</td>
+          <td class="right">${e.credit ? fmtRs(e.credit) : "—"}</td>
+          <td class="right"><strong>${fmtRs(e.balance)}</strong></td>
+        </tr>`),
+      `<tr style="background:#f1f5f9;font-weight:600;">
+        <td colspan="4" class="right">Totals</td>
+        <td class="right">${fmtRs(totalDebit)}</td>
+        <td class="right">${fmtRs(totalCredit)}</td>
+        <td class="right">${fmtRs(ledger.closing_balance)}</td>
+      </tr>`,
+    ].join("");
+
+    const entityName = type === "supplier" ? ledger.supplier_name : ledger.customer_name;
+    const body = `
+      <h1>Commercial Trading</h1>
+      <h2>${label} Ledger</h2>
+      <div class="meta">Generated: ${new Date().toLocaleString()}${(dateFrom || dateTo) ? ` · Range: ${escapeHtml(dateFrom || "start")} → ${escapeHtml(dateTo || "today")}` : ""}</div>
+      <div class="entity"><strong>${escapeHtml(entityName || "")}</strong></div>
+      <table class="ledger-table">
+        <thead>
+          <tr>
+            <th style="width:85px;">Date</th>
+            <th style="width:95px;">Type</th>
+            <th style="width:120px;">Reference</th>
+            <th>Description</th>
+            <th class="right" style="width:90px;">Debit</th>
+            <th class="right" style="width:90px;">Credit</th>
+            <th class="right" style="width:100px;">Balance</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="totals"><span class="label">Closing Balance</span><span class="value">${fmtRs(ledger.closing_balance)}</span></div>
+    `;
+    printHtml(`${label} Ledger - ${entityName || ""}`, body, { landscape: true });
+  };
 
   if (loading) {
     return <div className="space-y-4"><Skeleton className="h-20" /><Skeleton className="h-72" /></div>;

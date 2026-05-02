@@ -42,7 +42,7 @@ export default function Layout() {
     <>
       <div className="p-4 border-b border-white/10">
         <h1 className="text-lg font-semibold tracking-tight text-white" style={{ fontFamily: 'Outfit, sans-serif' }}>
-          Commerical Trading
+          Commercial Trading
         </h1>
         <p className="text-xs text-white/50 mt-0.5">Business Management</p>
       </div>

@@ -51,7 +51,7 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6" data-testid="dashboard-page">
       <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight" style={{ fontFamily: 'Outfit, sans-serif' }}>
-        Commerical Trading
+        Commercial Trading
       </h1>
 
       {/* Quick Actions */}
