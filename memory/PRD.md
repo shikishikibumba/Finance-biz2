@@ -2,20 +2,16 @@
 
 ## Original Problem Statement
 Continue Mini Accounting system from GitHub branch `conflict_010526_0312`.
-Phase 7: dropdown scroll, supplier credit notes (NO purchase value mutation),
-supplier outstanding report, multi-cheque/multi-allocation historical payments,
-payment view/print, customer-outstanding credit-note annexure, customer ledger,
-supplier ledger, Resend email for forgot-password OTP.
 
-Phase 8: customer-outstanding returns column must be non-zero when credit notes
-exist; supplier-ledger print must render the full table; remove "Made with
-Emergent" watermark from print output; fix "Commerical" spelling to "Commercial"
-everywhere.
-
-Phase 9: enforce supplier-payable vs supplier-outstanding consistency (formula
-uses entity-level supplier payments — canonical: `opening + purchases − credit
-notes − all supplier payments`); centralize credit-note math into a shared
-helper.
+- **Phase 7** (Apr 30): dropdown scroll, supplier credit notes (no purchase-value mutation),
+  supplier outstanding report, multi-cheque/multi-allocation historical payments, payment
+  view/print, customer-outstanding credit-note annexure, customer & supplier ledger, Resend OTP.
+- **Phase 8** (May 2): customer-outstanding returns column fix, supplier-ledger print rendering,
+  remove Emergent watermark, "Commerical" → "Commercial".
+- **Phase 9** (May 2): supplier-payable vs supplier-outstanding consistency (canonical formula);
+  centralized `_credit_total` helper.
+- **Phase 10** (May 11): backdated returns, returned-stock as a source in historical invoices,
+  opening-balance date, ledger debit/credit presentation fix.
 
 ## Architecture
 - React 19 + Tailwind + shadcn/ui front-end
@@ -25,61 +21,51 @@ helper.
 
 ## What's been implemented
 
-### Phase 7 (Apr 30, 2026)
-- SearchableSelect scroll trap + keyboard nav
-- Supplier Credit Note system — `returns.py` never mutates `purchases.total_amount`
-- `/api/reports/supplier-outstanding/{id}` with per-purchase credit notes + annexure
-- Historical payments support multi-cheque + multi-allocation (Migration page)
-- Payment View + Print voucher dialog
-- Customer-outstanding includes credit-note annexure pages
-- Customer & Supplier ledger pages (date-range, running balance, printable)
-- Resend integration with inline-OTP fallback
+### Phase 10 (May 11, 2026)
+- **Backdated returns**: `ReturnsPage` exposes a "Return Date" field; backend was already
+  capable, only the form payload was missing the value.
+- **Returned stock in historical invoices**: `InvoiceItemInput` now accepts `source`
+  (`supplier` | `returned_stock`) and `returned_stock_id`. The migration page invoice
+  form has a per-line Stock Source toggle: when a line uses returned stock the cost is
+  taken from the stock entry, the stock's `quantity_used` is reserved, and the
+  auto-created linked purchase EXCLUDES that line. Supplier and supplier-invoice-number
+  are now required only when at least one line is supplier-sourced.
+- **Opening balance date**: customers and suppliers gain `opening_balance_date`.
+  Customer & Supplier ledger endpoints echo it back and treat it as `effective_from` —
+  transactions dated before that date are filtered out (they're assumed to be embedded
+  in the opening figure). Migration page > Opening Balance now includes a date picker.
+- **Ledger debit/credit presentation**: the Opening row no longer collapses into a
+  colspan that pushed the balance into the Credit column. Customer = Debit (receivable),
+  Supplier = Credit (payable). Print output mirrors the on-screen layout.
 
-### Phase 8 + 9 (May 2, 2026)
-- "Commerical" → "Commercial" across frontend/backend (sidebar, dashboard,
-  login, invoices, email service, APP_NAME)
-- Customer-outstanding: now shows `returned` correctly per invoice and still
-  lists the invoice row even after full payment+return when returns > 0.
-  Fallback match via `invoice_id` for legacy returns missing `customer_id`.
-- Supplier ledger print now uses a dedicated print window (`/lib/printer.js
-  printHtml`) with landscape orientation, repeating table headers, and no
-  platform watermark. CSS also hides `[class*=emergent-badge]` / emergent
-  anchors during any in-page print.
-- `reports.supplier-outstanding.total_payable` = `opening + purchases −
-  credit_notes − total_supplier_payments` (entity-level). Matches
-  `supplier-payable` and `suppliers` list exactly. New field
-  `unallocated_paid` exposes payments not yet assigned to a purchase.
-- New `routes/_helpers.py` with `credit_total`, `sum_credit_totals`,
-  `enrich_purchase`. Used by suppliers, purchases, reports.
+### Phase 7–9 (carried forward)
+- Supplier credit notes preserve original purchase value
+- Phase 9 canonical payable formula reconciled across `suppliers`, `supplier-payable`,
+  and `supplier-outstanding`
+- Centralized `routes/_helpers.py` (`credit_total`, `sum_credit_totals`, `enrich_purchase`)
+- Watermark removal via global `@media print` + dedicated print window
+- Resend with inline-OTP fallback
 
 ## Tests
-- `pytest /app/backend/tests/` → 33/33 pass
-  - `test_phase7.py` — 18 tests (auth, supplier credit-note invariant,
-    ledgers, outstanding, multi-cheque + multi-allocation validations)
-  - `test_phase8_9.py` — 15 tests (customer-outstanding returns column,
-    ledger credit-note reference, Phase 9.1 MANDATORY scenario ending at
-    payable=250000 on all four surfaces, helper import checks, no typos)
+- `pytest /app/backend/tests/test_phase7.py test_phase8_9.py test_phase10.py`
+  → **48/48 pass**
+  - Phase 7: 18 tests
+  - Phase 8/9: 15 tests
+  - Phase 10: 15 tests (backdated returns, returned-stock invoice, validation, opening-date
+    filtering for both customer & supplier ledgers, regression)
 
 ## Acceptance Criteria — STATUS
-- [x] Dropdown scroll fixed
-- [x] Supplier credit notes visible in supplier profile + purchase detail
-- [x] Original purchase value preserved (migration auto-restores legacy)
-- [x] Supplier outstanding report (per-supplier, printable, consistent)
-- [x] Multi-cheque + multi-allocation historical payments
-- [x] Payment View + Print voucher
-- [x] Credit notes in outstanding reports (annexure pages)
-- [x] Customer ledger + Supplier ledger
-- [x] **Phase 8** — Customer-outstanding returns column reflects CN value
-- [x] **Phase 8** — Supplier ledger prints full table, no watermark
-- [x] **Phase 8** — System name spelling corrected globally
-- [x] **Phase 9** — Supplier payable = Supplier outstanding (250,000 on all
-  surfaces in the final scenario)
-- [x] **Phase 9** — Centralized `_credit_total` helper
+- [x] Backdated returns supported (UI + backend)
+- [x] Historical invoices can source items from returned stock
+- [x] Opening balance dates stored & enforced in ledger
+- [x] Customer ledger: outstanding on debit, payments on credit
+- [x] Supplier ledger: purchases on credit, payments on debit
+- [x] Outstanding totals remain mathematically correct (regression passes)
 
-## Backlog / Future (Next Action Items)
-- (P1) Verify domain on resend.com/domains and update SENDER_EMAIL in
-  `backend/.env` so OTPs reach real customers/suppliers.
-- (P2) Split `reports.py` (692 lines) into a `routes/reports/` package.
-- (P2) Rename `enrich_purchase` → `enrich_purchase_inplace` to signal
-  mutation to callers.
-- (P3) Email customer/supplier statements directly from the outstanding UI.
+## Backlog / Future
+- (P1) Verify domain at https://resend.com/domains and update SENDER_EMAIL so OTPs reach
+  real customers/suppliers.
+- (P2) Preserve `source` and `returned_stock_id` on `update_invoice` (currently lost on edit).
+- (P2) Atomic rollback for returned-stock reservation if invoice insert fails mid-write.
+- (P2) Split `routes/reports.py` (~700 lines) into a `routes/reports/` package.
+- (P3) Email statements directly from the outstanding screen.
