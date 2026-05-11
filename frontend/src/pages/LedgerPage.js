@@ -44,14 +44,23 @@ export default function LedgerPage() {
 
   const handlePrint = () => {
     if (!ledger) return;
+    const isSupplier = type === "supplier";
+    const openingDebit = isSupplier
+      ? (ledger.opening_balance < 0 ? fmtRs(-ledger.opening_balance) : "—")
+      : (ledger.opening_balance >= 0 ? fmtRs(ledger.opening_balance) : "—");
+    const openingCredit = isSupplier
+      ? (ledger.opening_balance >= 0 ? fmtRs(ledger.opening_balance) : "—")
+      : (ledger.opening_balance < 0 ? fmtRs(-ledger.opening_balance) : "—");
+    const openingDate = ledger.opening_balance_date || "—";
+    const openingDesc = ledger.opening_balance_date ? `As of ${ledger.opening_balance_date}` : "Balance brought forward";
     const rows = [
       `<tr>
-        <td>—</td>
+        <td>${escapeHtml(openingDate)}</td>
         <td><em>Opening</em></td>
-        <td></td>
-        <td><em>Balance brought forward</em></td>
-        <td class="right">—</td>
-        <td class="right">—</td>
+        <td>${escapeHtml(ledger.opening_balance_date ? `As of ${ledger.opening_balance_date}` : "")}</td>
+        <td><em>${escapeHtml(openingDesc)}</em></td>
+        <td class="right">${openingDebit}</td>
+        <td class="right">${openingCredit}</td>
         <td class="right"><strong>${fmtRs(ledger.opening_balance)}</strong></td>
       </tr>`,
       ...(ledger.entries || []).map(e => `
@@ -196,10 +205,22 @@ export default function LedgerPage() {
                 </tr>
               </thead>
               <tbody>
-                <tr>
-                  <td className="text-muted-foreground">—</td>
+                {/* Opening balance row: customer = debit (receivable); supplier = credit (payable). */}
+                <tr data-testid="ledger-opening-row">
+                  <td className="text-muted-foreground">{ledger.opening_balance_date || "—"}</td>
                   <td className="text-muted-foreground text-xs uppercase">Opening</td>
-                  <td colSpan="3" className="text-muted-foreground italic">Balance brought forward</td>
+                  <td className="font-medium">{ledger.opening_balance_date ? `As of ${ledger.opening_balance_date}` : "—"}</td>
+                  <td className="text-xs italic text-muted-foreground">Balance brought forward</td>
+                  <td className="text-right">
+                    {type === "supplier"
+                      ? (ledger.opening_balance < 0 ? `Rs. ${fmt(-ledger.opening_balance)}` : "—")
+                      : (ledger.opening_balance >= 0 ? `Rs. ${fmt(ledger.opening_balance)}` : "—")}
+                  </td>
+                  <td className="text-right">
+                    {type === "supplier"
+                      ? (ledger.opening_balance >= 0 ? `Rs. ${fmt(ledger.opening_balance)}` : "—")
+                      : (ledger.opening_balance < 0 ? `Rs. ${fmt(-ledger.opening_balance)}` : "—")}
+                  </td>
                   <td className="text-right font-medium">Rs. {fmt(ledger.opening_balance)}</td>
                 </tr>
                 {(ledger.entries || []).map((e, idx) => (

@@ -17,6 +17,7 @@ class SupplierCreate(BaseModel):
     address: Optional[str] = ""
     is_primary: Optional[bool] = False
     opening_balance: Optional[float] = 0
+    opening_balance_date: Optional[str] = ""
 
 
 class SupplierUpdate(BaseModel):
@@ -25,6 +26,7 @@ class SupplierUpdate(BaseModel):
     address: Optional[str] = None
     is_primary: Optional[bool] = None
     opening_balance: Optional[float] = None
+    opening_balance_date: Optional[str] = None
 
 
 @router.get("")
@@ -131,6 +133,7 @@ async def create_supplier(data: SupplierCreate, user=Depends(get_current_user)):
         "address": data.address or "",
         "is_primary": data.is_primary or False,
         "opening_balance": float(data.opening_balance or 0),
+        "opening_balance_date": data.opening_balance_date or "",
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.suppliers.insert_one(doc)

@@ -24,7 +24,7 @@ export default function ReturnsPage() {
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [stockDialogOpen, setStockDialogOpen] = useState(false);
-  const [form, setForm] = useState({ invoice_id: "", invoice: null, items: [], notes: "", destination: "warehouse", supplier_id: "", supplier_name: "", purchase_id: "" });
+  const [form, setForm] = useState({ invoice_id: "", invoice: null, items: [], notes: "", destination: "warehouse", supplier_id: "", supplier_name: "", purchase_id: "", created_at: "" });
   const [suppliers, setSuppliers] = useState([]);
   const [purchases, setPurchases] = useState([]);
   const [stockForm, setStockForm] = useState({ product_id: "", product_name: "", quantity: "", cost_price: "", unit_price: "", notes: "" });
@@ -55,7 +55,7 @@ export default function ReturnsPage() {
   const productOptions = products.map(p => ({ value: p.id, label: p.name }));
 
   const openNewReturn = () => {
-    setForm({ invoice_id: "", invoice: null, items: [], notes: "", destination: "warehouse", supplier_id: "", supplier_name: "", purchase_id: "" });
+    setForm({ invoice_id: "", invoice: null, items: [], notes: "", destination: "warehouse", supplier_id: "", supplier_name: "", purchase_id: "", created_at: "" });
     setDialogOpen(true);
   };
 
@@ -96,7 +96,7 @@ export default function ReturnsPage() {
       }
     }
     try {
-      await API.post("/returns", {
+      const payload = {
         invoice_id: form.invoice_id,
         items: toReturn.map(i => ({
           product_id: i.product_id,
@@ -111,7 +111,9 @@ export default function ReturnsPage() {
         supplier_id: form.supplier_id || "",
         supplier_name: form.supplier_name || "",
         purchase_id: form.purchase_id || "",
-      });
+      };
+      if (form.created_at) payload.created_at = form.created_at + "T12:00:00";
+      await API.post("/returns", payload);
       toast.success(form.destination === "supplier" ? "Return to supplier recorded" : "Return recorded");
       setDialogOpen(false);
       fetchData();
@@ -274,9 +276,20 @@ export default function ReturnsPage() {
         <DialogContent className="sm:max-w-3xl max-h-[92vh] overflow-y-auto">
           <DialogHeader><DialogTitle style={{ fontFamily: 'Outfit, sans-serif' }}>Record Customer Return</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
-            <div>
-              <Label className="text-xs font-bold uppercase tracking-wider">Invoice *</Label>
-              <SearchableSelect options={invoiceOptions} value={form.invoice_id} onSelect={selectInvoice} placeholder="Select invoice..." />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs font-bold uppercase tracking-wider">Invoice *</Label>
+                <SearchableSelect options={invoiceOptions} value={form.invoice_id} onSelect={selectInvoice} placeholder="Select invoice..." />
+              </div>
+              <div>
+                <Label className="text-xs font-bold uppercase tracking-wider">Return Date <span className="normal-case text-[10px] text-muted-foreground">(blank = today)</span></Label>
+                <Input
+                  type="date"
+                  value={form.created_at}
+                  onChange={e => setForm(f => ({ ...f, created_at: e.target.value }))}
+                  data-testid="return-date-input"
+                />
+              </div>
             </div>
 
             {form.invoice && (

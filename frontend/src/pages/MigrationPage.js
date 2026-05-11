@@ -20,8 +20,12 @@ export default function MigrationPage() {
   const [products, setProducts] = useState([]);
   const [invoices, setInvoices] = useState([]);
 
-  // Historical invoice — supplier is REQUIRED (auto-creates linked purchase for payables)
+  // Historical invoice — supplier auto-creates linked purchase. Items may
+  // source stock from the warehouse (returned_stock) instead of a supplier,
+  // in which case no purchase line is added.
   const [invForm, setInvForm] = useState({ customer_id: "", customer_name: "", customer_shop_name: "", supplier_id: "", supplier_name: "", supplier_invoice_number: "", invoice_number: "", created_at: "", items: [], notes: "" });
+
+  const [returnedStock, setReturnedStock] = useState([]);
 
   // Historical purchase
   const [purForm, setPurForm] = useState({ supplier_id: "", supplier_name: "", supplier_invoice_number: "", purchase_number: "", created_at: "", items: [], notes: "" });
@@ -43,16 +47,16 @@ export default function MigrationPage() {
   });
 
   // Opening balance
-  const [obForm, setObForm] = useState({ entity_type: "customer", entity_id: "", entity_name: "", opening_balance: 0 });
+  const [obForm, setObForm] = useState({ entity_type: "customer", entity_id: "", entity_name: "", opening_balance: 0, opening_balance_date: "" });
 
   const [purchases, setPurchases] = useState([]);
 
   const load = useCallback(async () => {
     try {
-      const [c, s, p, i, pur] = await Promise.all([
-        API.get("/customers"), API.get("/suppliers"), API.get("/products"), API.get("/invoices"), API.get("/purchases")
+      const [c, s, p, i, pur, rs] = await Promise.all([
+        API.get("/customers"), API.get("/suppliers"), API.get("/products"), API.get("/invoices"), API.get("/purchases"), API.get("/returned-stock")
       ]);
-      setCustomers(c.data); setSuppliers(s.data); setProducts(p.data); setInvoices(i.data); setPurchases(pur.data);
+      setCustomers(c.data); setSuppliers(s.data); setProducts(p.data); setInvoices(i.data); setPurchases(pur.data); setReturnedStock(rs.data);
     } catch (err) { console.error(err); }
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -89,7 +93,7 @@ export default function MigrationPage() {
     : [];
 
   // ─── Invoice ──────────────────────────────────────────────────────
-  const addInvItem = () => setInvForm(f => ({ ...f, items: [...f.items, { product_id: "", product_name: "", quantity: 1, unit_price: "", cost_price: "" }] }));
+  const addInvItem = () => setInvForm(f => ({ ...f, items: [...f.items, { product_id: "", product_name: "", quantity: 1, unit_price: "", cost_price: "", source: "supplier", returned_stock_id: "" }] }));
   const updInvItem = (idx, field, value) => setInvForm(f => {
     const items = [...f.items]; items[idx] = { ...items[idx], [field]: value };
     if (field === "product_id") {
@@ -99,6 +103,14 @@ export default function MigrationPage() {
         items[idx].unit_price = prod.selling_price;
         items[idx].cost_price = prod.cost_price ?? "";
       }
+      items[idx].returned_stock_id = "";   // reset returned-stock pick when product changes
+    }
+    if (field === "source" && value === "supplier") {
+      items[idx].returned_stock_id = "";
+    }
+    if (field === "returned_stock_id") {
+      const stk = returnedStock.find(r => r.id === value);
+      if (stk) items[idx].cost_price = stk.cost_price;   // cost from returned stock entry
     }
     return { ...f, items };
   });
@@ -107,22 +119,32 @@ export default function MigrationPage() {
 
   const submitHistoricalInvoice = async () => {
     if (!invForm.customer_id) { toast.error("Select customer"); return; }
-    if (!invForm.supplier_id) { toast.error("Select supplier (required — links payable)"); return; }
-    if (!invForm.supplier_invoice_number) { toast.error("Supplier Invoice # is required"); return; }
+    const supplierItems = invForm.items.filter(i => (i.source || "supplier") === "supplier");
+    const stockItems = invForm.items.filter(i => i.source === "returned_stock");
+    if (supplierItems.length > 0) {
+      if (!invForm.supplier_id) { toast.error("Select supplier (required for supplier-sourced lines)"); return; }
+      if (!invForm.supplier_invoice_number) { toast.error("Supplier Invoice # is required when any line is supplier-sourced"); return; }
+    }
     if (invForm.items.length === 0) { toast.error("Add at least one item"); return; }
+    for (const it of stockItems) {
+      if (!it.returned_stock_id) { toast.error(`Pick a returned-stock entry for ${it.product_name || "the warehouse line"}`); return; }
+    }
     try {
       const payload = {
         customer_id: invForm.customer_id,
         customer_name: invForm.customer_name,
         customer_shop_name: invForm.customer_shop_name,
-        supplier_id: invForm.supplier_id,
-        supplier_name: invForm.supplier_name,
-        supplier_invoice_number: invForm.supplier_invoice_number,
+        supplier_id: supplierItems.length > 0 ? invForm.supplier_id : "",
+        supplier_name: supplierItems.length > 0 ? invForm.supplier_name : "",
+        supplier_invoice_number: supplierItems.length > 0 ? invForm.supplier_invoice_number : "",
         items: invForm.items.map(i => ({
-          ...i,
+          product_id: i.product_id,
+          product_name: i.product_name,
           quantity: parseFloat(i.quantity),
           unit_price: parseFloat(i.unit_price),
           cost_price: i.cost_price === "" || i.cost_price == null ? null : parseFloat(i.cost_price),
+          source: i.source || "supplier",
+          returned_stock_id: i.returned_stock_id || "",
         })),
         notes: invForm.notes,
       };
@@ -229,9 +251,12 @@ export default function MigrationPage() {
     if (!obForm.entity_id) { toast.error("Select entity"); return; }
     try {
       const endpoint = obForm.entity_type === "customer" ? `/customers/${obForm.entity_id}` : `/suppliers/${obForm.entity_id}`;
-      await API.put(endpoint, { opening_balance: parseFloat(obForm.opening_balance) });
+      await API.put(endpoint, {
+        opening_balance: parseFloat(obForm.opening_balance),
+        opening_balance_date: obForm.opening_balance_date || "",
+      });
       toast.success("Opening balance set");
-      setObForm({ entity_type: "customer", entity_id: "", entity_name: "", opening_balance: 0 });
+      setObForm({ entity_type: "customer", entity_id: "", entity_name: "", opening_balance: 0, opening_balance_date: "" });
       load();
     } catch (err) { toast.error(err.response?.data?.detail || "Failed"); }
   };
@@ -264,10 +289,10 @@ export default function MigrationPage() {
               </div>
               <div><Label className="text-xs uppercase">Invoice Date *</Label><Input type="date" value={invForm.created_at} onChange={e => setInvForm(f => ({ ...f, created_at: e.target.value }))} data-testid="hist-inv-date" /></div>
               <div>
-                <Label className="text-xs uppercase">Supplier * <span className="text-[10px] text-muted-foreground normal-case">(auto-creates payable)</span></Label>
+                <Label className="text-xs uppercase">Supplier <span className="text-[10px] text-muted-foreground normal-case">(required only if a line is supplier-sourced)</span></Label>
                 <SearchableSelect options={supplierOptions} value={invForm.supplier_id} onSelect={id => { const s = suppliers.find(x => x.id === id); setInvForm(f => ({ ...f, supplier_id: id, supplier_name: s?.name || "" })); }} placeholder="Select supplier..." />
               </div>
-              <div><Label className="text-xs uppercase">Supplier Invoice # *</Label><Input value={invForm.supplier_invoice_number} onChange={e => setInvForm(f => ({ ...f, supplier_invoice_number: e.target.value }))} placeholder="Supplier's reference" data-testid="hist-inv-supinv" /></div>
+              <div><Label className="text-xs uppercase">Supplier Invoice # <span className="normal-case text-[10px] text-muted-foreground">(if supplier-sourced)</span></Label><Input value={invForm.supplier_invoice_number} onChange={e => setInvForm(f => ({ ...f, supplier_invoice_number: e.target.value }))} placeholder="Supplier's reference" data-testid="hist-inv-supinv" /></div>
               <div><Label className="text-xs uppercase">Invoice Number (optional)</Label><Input value={invForm.invoice_number} onChange={e => setInvForm(f => ({ ...f, invoice_number: e.target.value }))} placeholder="Leave blank for auto" data-testid="hist-inv-number" /></div>
             </div>
 
@@ -276,18 +301,65 @@ export default function MigrationPage() {
                 <Label className="text-xs uppercase font-bold">Items</Label>
                 <Button type="button" variant="outline" size="sm" onClick={addInvItem} className="rounded-sm text-xs gap-1" data-testid="hist-inv-add-item"><Plus size={12} /> Add Item</Button>
               </div>
-              {invForm.items.map((it, idx) => (
+              {invForm.items.map((it, idx) => {
+                const remaining = (s) => (s.quantity_available || 0) - (s.quantity_used || 0);
+                const stockForProduct = returnedStock
+                  .filter(s => s.product_id === it.product_id && remaining(s) > 0)
+                  .map(s => ({ value: s.id, label: `Remaining ${remaining(s)} · Cost Rs. ${fmt(s.cost_price)} · ${s.source === "customer_return" ? "from return" : "opening"} · ${s.created_at?.slice(0, 10)}` }));
+                return (
                 <div key={idx} className="border rounded-sm p-3 bg-[hsl(var(--surface-muted))] space-y-2">
                   <div className="flex justify-between items-center"><span className="text-xs font-bold text-muted-foreground">ITEM {idx + 1}</span>
                     <Button type="button" variant="ghost" size="icon" className="h-6 w-6" onClick={() => rmInvItem(idx)}><X size={14} /></Button></div>
                   <SearchableSelect options={productOptions} value={it.product_id} onSelect={v => updInvItem(idx, "product_id", v)} placeholder="Select product..." />
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="font-bold uppercase tracking-wider text-muted-foreground">Stock Source:</span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={(it.source || "supplier") === "supplier" ? "default" : "outline"}
+                      onClick={() => updInvItem(idx, "source", "supplier")}
+                      className={`rounded-sm h-7 text-[11px] ${(it.source || "supplier") === "supplier" ? "bg-[#0F172A] text-white" : ""}`}
+                      data-testid={`hist-inv-item-${idx}-source-supplier`}
+                    >
+                      Supplier (new purchase)
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={it.source === "returned_stock" ? "default" : "outline"}
+                      onClick={() => updInvItem(idx, "source", "returned_stock")}
+                      className={`rounded-sm h-7 text-[11px] ${it.source === "returned_stock" ? "bg-emerald-700 text-white hover:bg-emerald-800" : ""}`}
+                      disabled={!it.product_id || stockForProduct.length === 0}
+                      data-testid={`hist-inv-item-${idx}-source-stock`}
+                    >
+                      Returned Stock {it.product_id && stockForProduct.length === 0 ? "(none)" : ""}
+                    </Button>
+                  </div>
+                  {it.source === "returned_stock" && (
+                    <SearchableSelect
+                      options={stockForProduct}
+                      value={it.returned_stock_id}
+                      onSelect={v => updInvItem(idx, "returned_stock_id", v)}
+                      placeholder="Pick stock batch..."
+                    />
+                  )}
                   <div className="grid grid-cols-3 gap-3">
                     <div><Label className="text-[10px] uppercase">Qty</Label><Input type="number" value={it.quantity} onChange={e => updInvItem(idx, "quantity", e.target.value)} /></div>
                     <div><Label className="text-[10px] uppercase">Unit Price</Label><Input type="number" value={it.unit_price} onChange={e => updInvItem(idx, "unit_price", e.target.value)} /></div>
-                    <div><Label className="text-[10px] uppercase">Cost Price</Label><Input type="number" value={it.cost_price} onChange={e => updInvItem(idx, "cost_price", e.target.value)} placeholder="For payable" /></div>
+                    <div>
+                      <Label className="text-[10px] uppercase">Cost Price</Label>
+                      <Input
+                        type="number"
+                        value={it.cost_price}
+                        onChange={e => updInvItem(idx, "cost_price", e.target.value)}
+                        placeholder={it.source === "returned_stock" ? "From stock" : "For payable"}
+                        disabled={it.source === "returned_stock"}
+                      />
+                    </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
             <Textarea placeholder="Notes" value={invForm.notes} onChange={e => setInvForm(f => ({ ...f, notes: e.target.value }))} className="min-h-[50px]" />
             <div className="flex justify-between items-center border-t pt-3">
@@ -454,7 +526,7 @@ export default function MigrationPage() {
         <TabsContent value="opening" className="mt-4">
           <Card className="border shadow-sm"><CardContent className="p-6 space-y-4">
             <p className="text-xs text-muted-foreground">Set the opening outstanding/payable for an existing customer or supplier. This adds directly to their total — use for migrating pre-existing balances that have no linked invoices/purchases.</p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
               <div>
                 <Label className="text-xs uppercase">Type</Label>
                 <Select value={obForm.entity_type} onValueChange={v => setObForm(f => ({ ...f, entity_type: v, entity_id: "", entity_name: "" }))}>
@@ -470,12 +542,28 @@ export default function MigrationPage() {
                   onSelect={id => {
                     const list = obForm.entity_type === "customer" ? customers : suppliers;
                     const e = list.find(x => x.id === id);
-                    setObForm(f => ({ ...f, entity_id: id, entity_name: e?.name || "", opening_balance: e?.opening_balance || 0 }));
+                    setObForm(f => ({
+                      ...f,
+                      entity_id: id,
+                      entity_name: e?.name || "",
+                      opening_balance: e?.opening_balance || 0,
+                      opening_balance_date: e?.opening_balance_date || "",
+                    }));
                   }}
                   placeholder="Select..."
                 />
               </div>
               <div><Label className="text-xs uppercase">Opening Balance *</Label><Input type="number" value={obForm.opening_balance} onChange={e => setObForm(f => ({ ...f, opening_balance: e.target.value }))} data-testid="hist-opening-amount" /></div>
+              <div>
+                <Label className="text-xs uppercase">As of Date</Label>
+                <Input
+                  type="date"
+                  value={obForm.opening_balance_date}
+                  onChange={e => setObForm(f => ({ ...f, opening_balance_date: e.target.value }))}
+                  data-testid="hist-opening-date"
+                />
+                <p className="text-[10px] text-muted-foreground mt-1">Transactions before this date won't appear on the ledger.</p>
+              </div>
             </div>
             <div className="flex justify-end border-t pt-3">
               <Button onClick={submitOpeningBalance} className="bg-[#0F172A] hover:bg-[#1E293B] rounded-sm" data-testid="submit-opening-balance">Save Opening Balance</Button>

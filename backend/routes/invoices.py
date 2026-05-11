@@ -15,6 +15,11 @@ class InvoiceItemInput(BaseModel):
     quantity: float
     unit_price: float
     cost_price: Optional[float] = None  # used by historical-invoice → auto-purchase
+    # Stock source for this line: "supplier" (default, will be part of the
+    # auto-created linked purchase) or "returned_stock" (reserve qty from
+    # an existing returned_stock entry — no purchase line is created for it).
+    source: Optional[str] = "supplier"
+    returned_stock_id: Optional[str] = ""
 
 
 class InvoiceCreate(BaseModel):
@@ -171,19 +176,54 @@ async def get_invoice(invoice_id: str, user=Depends(get_current_user)):
 async def create_invoice(data: InvoiceCreate, user=Depends(get_current_user)):
     invoice_number = await _resolve_invoice_number(data.invoice_number)
 
+    # Reserve returned_stock for any line tagged source=returned_stock. Aggregate
+    # by stock id and check availability before mutating anything.
+    stock_requests: dict = {}
+    for it in data.items:
+        if (it.source or "") == "returned_stock":
+            if not it.returned_stock_id:
+                raise HTTPException(status_code=400, detail=f"returned_stock_id required for '{it.product_name}'")
+            stock_requests[it.returned_stock_id] = stock_requests.get(it.returned_stock_id, 0) + float(it.quantity)
+
+    stock_docs: dict = {}
+    for sid, qty in stock_requests.items():
+        stock = await db.returned_stock.find_one({"id": sid}, {"_id": 0})
+        if not stock:
+            raise HTTPException(status_code=404, detail=f"Returned stock {sid} not found")
+        remaining = float(stock.get("quantity_available", 0)) - float(stock.get("quantity_used", 0))
+        if qty > remaining + 0.0001:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Only {remaining} units available in returned stock for {stock.get('product_name','')}"
+            )
+        stock_docs[sid] = stock
+
     items = []
     total = 0
     for item in data.items:
+        source = item.source or "supplier"
+        cost_for_item = item.cost_price
+        if source == "returned_stock" and item.returned_stock_id:
+            # Override cost_price with the cost recorded on the returned-stock
+            # entry — this keeps profit calculations accurate.
+            cost_for_item = float(stock_docs[item.returned_stock_id].get("cost_price", 0))
         item_doc = {
             "id": str(uuid.uuid4()),
             "product_id": item.product_id,
             "product_name": item.product_name,
             "quantity": item.quantity,
             "unit_price": item.unit_price,
-            "amount": round(item.quantity * item.unit_price, 2)
+            "amount": round(item.quantity * item.unit_price, 2),
+            "source": source,
+            "returned_stock_id": item.returned_stock_id or "",
+            "cost_price": cost_for_item if cost_for_item is not None else 0,
         }
         total += item_doc["amount"]
         items.append(item_doc)
+
+    # Commit the stock usage now that validation passed.
+    for sid, qty in stock_requests.items():
+        await db.returned_stock.update_one({"id": sid}, {"$inc": {"quantity_used": qty}})
 
     created_at = data.created_at or datetime.now(timezone.utc).isoformat()
 
@@ -205,11 +245,14 @@ async def create_invoice(data: InvoiceCreate, user=Depends(get_current_user)):
     await db.invoices.insert_one(doc)
     doc.pop("_id", None)
 
-    # Migration helper: auto-create a linked purchase if supplier provided.
-    if (data.supplier_id or data.supplier_name) and not data.order_id:
+    # Migration helper: auto-create a linked purchase ONLY for supplier-sourced
+    # lines (returned_stock lines have no payable since the stock already
+    # exists). Skip entirely if every line came from returned stock.
+    supplier_items = [it for it in data.items if (it.source or "supplier") == "supplier"]
+    if (data.supplier_id or data.supplier_name) and not data.order_id and supplier_items:
         purchase_items = []
         purchase_total = 0
-        for item in data.items:
+        for item in supplier_items:
             cost = item.cost_price if item.cost_price is not None else 0
             pi = {
                 "id": str(uuid.uuid4()),

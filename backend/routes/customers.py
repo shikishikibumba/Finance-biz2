@@ -15,6 +15,7 @@ class CustomerCreate(BaseModel):
     shop_name: Optional[str] = ""
     address: Optional[str] = ""
     opening_balance: Optional[float] = 0
+    opening_balance_date: Optional[str] = ""
 
 
 class CustomerUpdate(BaseModel):
@@ -23,6 +24,7 @@ class CustomerUpdate(BaseModel):
     shop_name: Optional[str] = None
     address: Optional[str] = None
     opening_balance: Optional[float] = None
+    opening_balance_date: Optional[str] = None
 
 
 @router.get("")
@@ -128,6 +130,7 @@ async def create_customer(data: CustomerCreate, user=Depends(get_current_user)):
         "shop_name": data.shop_name or "",
         "address": data.address or "",
         "opening_balance": float(data.opening_balance or 0),
+        "opening_balance_date": data.opening_balance_date or "",
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.customers.insert_one(doc)

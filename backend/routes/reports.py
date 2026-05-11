@@ -543,10 +543,14 @@ async def customer_ledger(customer_id: str, date_from: Optional[str] = None,
 
     entries = []
     opening = float(customer.get("opening_balance", 0) or 0)
+    opening_date = customer.get("opening_balance_date", "") or ""
+    # If opening balance has a date, exclude transactions that pre-date it
+    # (they are assumed to be embedded in the opening figure).
+    effective_from = opening_date if (opening_date and (not date_from or opening_date > date_from)) else date_from
 
     invoices = await db.invoices.find({"customer_id": customer_id}, {"_id": 0}).to_list(5000)
     for inv in invoices:
-        if not _in_range(inv.get("created_at", ""), date_from, date_to):
+        if not _in_range(inv.get("created_at", ""), effective_from, date_to):
             continue
         entries.append({
             "date": inv.get("created_at", "")[:10],
@@ -561,7 +565,7 @@ async def customer_ledger(customer_id: str, date_from: Optional[str] = None,
         {"payment_type": "customer", "entity_id": customer_id}, {"_id": 0}
     ).to_list(5000)
     for p in payments:
-        if not _in_range(p.get("created_at", ""), date_from, date_to):
+        if not _in_range(p.get("created_at", ""), effective_from, date_to):
             continue
         cheque_hint = ""
         if p.get("payment_method") == "cheque":
@@ -585,7 +589,7 @@ async def customer_ledger(customer_id: str, date_from: Optional[str] = None,
         if r.get("destination") == "supplier":
             # Supplier-bound credit note doesn't reduce customer outstanding
             continue
-        if not _in_range(r.get("created_at", ""), date_from, date_to):
+        if not _in_range(r.get("created_at", ""), effective_from, date_to):
             continue
         entries.append({
             "date": r.get("created_at", "")[:10],
@@ -624,10 +628,12 @@ async def supplier_ledger(supplier_id: str, date_from: Optional[str] = None,
 
     entries = []
     opening = float(supplier.get("opening_balance", 0) or 0)
+    opening_date = supplier.get("opening_balance_date", "") or ""
+    effective_from = opening_date if (opening_date and (not date_from or opening_date > date_from)) else date_from
 
     purchases = await db.purchases.find({"supplier_id": supplier_id}, {"_id": 0}).to_list(5000)
     for p in purchases:
-        if _in_range(p.get("created_at", ""), date_from, date_to):
+        if _in_range(p.get("created_at", ""), effective_from, date_to):
             entries.append({
                 "date": p.get("created_at", "")[:10],
                 "type": "purchase",
@@ -638,7 +644,7 @@ async def supplier_ledger(supplier_id: str, date_from: Optional[str] = None,
             })
         # Supplier credit notes from adjustments
         for adj in p.get("supplier_return_adjustments", []) or []:
-            if not _in_range(adj.get("adjusted_at", ""), date_from, date_to):
+            if not _in_range(adj.get("adjusted_at", ""), effective_from, date_to):
                 continue
             entries.append({
                 "date": adj.get("adjusted_at", "")[:10],
@@ -653,7 +659,7 @@ async def supplier_ledger(supplier_id: str, date_from: Optional[str] = None,
         {"payment_type": "supplier", "entity_id": supplier_id}, {"_id": 0}
     ).to_list(5000)
     for p in payments:
-        if not _in_range(p.get("created_at", ""), date_from, date_to):
+        if not _in_range(p.get("created_at", ""), effective_from, date_to):
             continue
         cheque_hint = ""
         if p.get("payment_method") == "cheque":
@@ -683,6 +689,7 @@ async def supplier_ledger(supplier_id: str, date_from: Optional[str] = None,
         "supplier_id": supplier_id,
         "supplier_name": supplier.get("name", ""),
         "opening_balance": round(opening, 2),
+        "opening_balance_date": opening_date,
         "entries": entries,
         "closing_balance": round(running, 2),
         "date_from": date_from,
