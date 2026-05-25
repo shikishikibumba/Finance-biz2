@@ -22,6 +22,20 @@ from email_service import send_email, build_otp_email_html
 
 app = FastAPI(redirect_slashes=False)
 
+# Cookie config — driven by env so the same code works locally (lax/false)
+# and in production cross-origin (none/true). When deploying Vercel → Render
+# set COOKIE_SECURE=true and COOKIE_SAMESITE=none.
+def _bool_env(name: str, default: bool) -> bool:
+    return os.environ.get(name, str(default)).strip().lower() in ("1", "true", "yes", "on")
+
+COOKIE_SECURE = _bool_env("COOKIE_SECURE", False)
+COOKIE_SAMESITE = os.environ.get("COOKIE_SAMESITE", "lax").strip().lower()
+if COOKIE_SAMESITE not in ("lax", "strict", "none"):
+    COOKIE_SAMESITE = "lax"
+# Browsers require Secure when SameSite=None
+if COOKIE_SAMESITE == "none":
+    COOKIE_SECURE = True
+
 # CORS — if CORS_ORIGINS is "*" we cannot use allow_credentials=True (browsers block it).
 # We either:
 #   1) echo back the request origin (works with credentials), or
@@ -67,8 +81,8 @@ async def login(req: LoginRequest, response: Response):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     access_token = create_access_token(user["id"], email)
     refresh_token = create_refresh_token(user["id"])
-    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, samesite="lax", max_age=86400, path="/")
-    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=False, samesite="lax", max_age=604800, path="/")
+    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE, max_age=86400, path="/")
+    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE, max_age=604800, path="/")
     return {"id": user["id"], "email": user["email"], "name": user["name"], "role": user.get("role", "user")}
 
 
@@ -90,8 +104,8 @@ async def register(req: RegisterRequest, response: Response):
     await db.users.insert_one(user_doc)
     access_token = create_access_token(user_id, email)
     refresh_token = create_refresh_token(user_id)
-    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, samesite="lax", max_age=86400, path="/")
-    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=False, samesite="lax", max_age=604800, path="/")
+    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE, max_age=86400, path="/")
+    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE, max_age=604800, path="/")
     return {"id": user_id, "email": email, "name": req.name, "role": "user"}
 
 
@@ -102,8 +116,8 @@ async def get_me(user: dict = Depends(get_current_user)):
 
 @auth_router.post("/logout")
 async def logout(response: Response):
-    response.delete_cookie("access_token", path="/")
-    response.delete_cookie("refresh_token", path="/")
+    response.delete_cookie("access_token", path="/", samesite=COOKIE_SAMESITE, secure=COOKIE_SECURE)
+    response.delete_cookie("refresh_token", path="/", samesite=COOKIE_SAMESITE, secure=COOKIE_SECURE)
     return {"message": "Logged out"}
 
 

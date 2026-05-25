@@ -1,0 +1,44 @@
+# render.yaml — Infrastructure-as-Code for Render
+# Usage: connect your GitHub repo on render.com, choose "New + → Blueprint",
+#        and select this file. Render reads it and creates the service for you.
+
+services:
+  - type: web
+    name: commercial-trading-api
+    runtime: python
+    region: singapore
+    plan: starter            # change to 'free' if you want, but free sleeps
+    branch: v3_25052026
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: |
+      python -c "import os; open('firebase-service-account.json','w').write(os.environ['FIREBASE_SERVICE_ACCOUNT_JSON'])" && uvicorn server:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: FIREBASE_SERVICE_ACCOUNT
+        value: /opt/render/project/src/backend/firebase-service-account.json
+      - key: FIREBASE_PROJECT_ID
+        value: commercial-trading1
+      - key: FIREBASE_STORAGE_BUCKET
+        value: commercial-trading1.appspot.com
+      - key: ADMIN_EMAIL
+        value: admin@example.com
+      - key: ADMIN_PASSWORD
+        value: admin123
+      - key: APP_NAME
+        value: Commercial Trading
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: COOKIE_SAMESITE
+        value: none
+      # Set these manually in the Render dashboard (sensitive):
+      - key: JWT_SECRET
+        sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false    # set to your Vercel URL, comma-separated
+      - key: RESEND_API_KEY
+        sync: false
+      - key: SENDER_EMAIL
+        sync: false
