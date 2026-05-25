@@ -1,0 +1,42 @@
+{
+  "summary": "Phase 10 micro-revision backend testing complete. Added /app/backend/tests/test_phase10.py with 15 invariants covering backdated returns, returned_stock historical invoices, returned_stock validation, opening_balance_date for customers & suppliers, and smoke regression. ALL 15 new tests pass. Full regression suite (Phase 7 + 8/9 + 10) = 48/48 passing. One MINOR contract inconsistency flagged: /api/reports/customer-ledger filters pre-opening-date transactions correctly but does NOT echo `opening_balance_date` in its response, while /api/reports/supplier-ledger does. Spec says both should return it.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "/api/reports/customer-ledger/{id}",
+        "issue": "Response missing `opening_balance_date` field. Filtering by opening_balance_date works correctly (pre-date entries excluded), but the field itself is not echoed back. Supplier-ledger correctly returns it. Spec: 'customer-ledger and supplier-ledger endpoints return it'. Fix: add `opening_balance_date: opening_date` to the returned dict in routes/reports.py customer_ledger() (mirror lines 692 in supplier_ledger)."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase10.py",
+    "/app/test_reports/pytest/phase10_results.xml"
+  ],
+  "action_items": [
+    "Add `opening_balance_date` to customer-ledger response payload in /app/backend/routes/reports.py customer_ledger() — single-line fix mirroring supplier_ledger at line 692."
+  ],
+  "critical_code_review_comments": [
+    "invoices.py update_invoice() rebuilds items WITHOUT preserving source/returned_stock_id/cost_price — editing a historical mixed-source invoice will lose the returned_stock linkage and miscalculate profit. Not covered by current spec but a latent bug.",
+    "invoices.py create_invoice() does not release reserved returned_stock if a later DB write fails — partial failure could leave quantity_used incremented with no invoice. Low risk in practice.",
+    "Returned-stock validation (>available) correctly returns 400 with descriptive message."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase10.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (15/15 new + 33/33 regression = 48/48)",
+    "frontend": "not tested (per request)"
+  },
+  "test_credentials": "admin@example.com / admin123 (cookie-based, from /app/memory/test_credentials.md)",
+  "seed_data_creation": "All test data created with TEST_ prefixed names + uuid hex suffix to avoid collisions. No cleanup performed (matches existing test pattern in test_phase7/8_9).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Phase 10 fully covered by /app/backend/tests/test_phase10.py (15 tests). Run combined regression: pytest /app/backend/tests/test_phase7.py /app/backend/tests/test_phase8_9.py /app/backend/tests/test_phase10.py — 48/48 passing as of this iteration. Single minor gap: customer-ledger missing opening_balance_date echo (filtering works). Frontend was explicitly out of scope.",
+  "rca of the issue": "N/A — no critical bugs. Minor field-echo gap in customer-ledger is a missing line in routes/reports.py customer_ledger() return dict; the variable `opening_date` is already loaded at line 546."
+}
